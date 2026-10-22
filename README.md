@@ -1,30 +1,62 @@
-# Dwano — Frontend Demo
+# دوانو · Dwano
 
-Next.js 15 + React 19 + TypeScript + Framer Motion. Arabic-first responsive frontend prototype.
+منصة اكتشاف صيدليات (واجهة فقط) لمحافظة الفيوم. **كل الصيدليات والأدوية والأرقام خيالية للعرض.** لا يوجد Backend؛ الحالة محفوظة في LocalStorage.
 
-## Run
+> ⚠️ **حالة المشروع:** الكود كُتب وتم فحص صيغته، لكنه **لم يُبنَ ولم يُشغَّل** بعد (بيئة الكتابة كانت بلا إنترنت لـ npm). أول `npm run build` قد يُظهر أخطاء Types بسيطة. ابعتلي نصها وأصلحها.
 
+## التشغيل
 ```bash
 npm install
-npm run dev
+npm run dev      # http://localhost:3000
+npm run build    # للتأكد من خلو الأخطاء
 ```
+Node 18.18+ (يُفضّل 20).
 
-Open http://localhost:3000
+## الصفحات
+**عامة:** `/` · `/search` · `/pharmacies/[id]` · `/medicine/[id]` · `/how-it-works` · `/about` · `/contact` · `/faq`
+**دخول:** `/login` · `/register` (معالج ٤ خطوات) · `/forgot-password` · `/reset-password`
+**الصيدلية:** `/pharmacy` · `/pharmacy/inventory` · `/pharmacy/profile` · `/pharmacy/branches` · `/pharmacy/analytics` · `/pharmacy/settings`
+**المشرف:** `/admin` · `/admin/pharmacies` · `/admin/medicines` · `/admin/geography` · `/admin/analytics` · `/admin/reports` · `/admin/settings`
 
-## Demo routes
+## جولة سريعة للديمو
+1. الرئيسية: مرّر ببطء (Hero ← مشكلة ← خطوات متراصّة ← لوحة مائلة ← تغطية ← FAQ).
+2. اكتب «كتافلام» في البحث ← صفحة النتائج + الخريطة، جرّب الفلاتر والترتيب.
+3. تسجيل الدخول ← «صيدلية» ← المخزون: أضف/عدّل/احذف وغيّر الحالات بالجملة.
+4. الفروع: أضف فرعًا (له مخزون مستقل).
+5. سجّل صيدلية من `/register` ثم افتح `/admin/pharmacies` واعتمدها.
+6. التقارير ← تصدير CSV. زر EN/عربي يبدّل اللغة والاتجاه.
 
-- `/` — Landing page
-- `/search` — Search and simulated map
-- `/pharmacy/ph-1` — Pharmacy profile
-- `/login` — Demo role selection
-- `/pharmacy/dashboard` — Pharmacy dashboard
-- `/admin/dashboard` — Admin dashboard
-- `/about`, `/how-it-works`, `/contact`, `/register`, `/faq`, `/forgot-password`, `/reset-password` — Supporting routes
+## طلب الدواء: الإيميل + التخزين + دخول المشرف
+البحث يفتح نموذج «اطلب دواءك». عند الإرسال يستقبله `/api/medicine-requests` ويقوم بـ:
+1. **إيميل** إلى `jesse121973@gmail.com` عبر Resend (`RESEND_API_KEY`).
+2. **تخزين** في Upstash Redis (`UPSTASH_REDIS_REST_URL/TOKEN`) ليظهر في لوحة المشرف من أي جهاز.
 
-## Demo data
+لوحة المشرف `/admin/requests` (والجرس) تقرأ من الخادم، وتطلب **كلمة مرور المشرف** (`ADMIN_PASSWORD`). انظر `.env.example` وأضف المتغيرات في Vercel ثم Redeploy.
+- أي خدمة غير مفعّلة تُتجاوز بأمان: بدون التخزين وكلمة المرور تُعرض الطلبات المحفوظة في المتصفح فقط، وبدون أي منهما يُقال للمستخدم صراحةً أن الطلب لم يصل.
+- بقية صفحات لوحة المشرف تجريبية ومفتوحة (بيانات خيالية)؛ الحماية الحقيقية مطبّقة على بيانات الطلبات فقط.
 
-30 fictional pharmacies, 50 medicines, 180 inventory records, six Fayoum districts. Stock changes persist to LocalStorage. No backend, live inventory, or authentication service. The map is a schematic visualization, not a real geographic map. Contact actions are intentionally disabled for fictional pharmacies.
+## قواعد السلامة المطبّقة
+- بيان إخلاء المسؤولية الطبي ظاهر في الصفحات الأساسية.
+- كل نتيجة عليها وقت آخر تحديث، وأي بيان أقدم من ٧٢ ساعة = «قديم» ولا يظهر «متوفر».
+- لا اقتراح بدائل أدوية ولا نصائح علاجية.
+- الاتصال/واتساب/الاتجاهات تعرض رسالة ديمو صريحة ولا تتصل بأرقام حقيقية.
 
-## Scope and limitations
+## التقنيات
+Next.js 15 (App Router) · React 19 · TypeScript · Tailwind 3.4 · Framer Motion · Zustand · Leaflet/OSM · Recharts · Zod + React Hook Form.
 
-This is a runnable **first implementation**, not the full production-grade spec. Missing items include actual Leaflet/OpenStreetMap tiles, complete English localization, full pharmacy/admin CRUD across all entities, advanced registration wizard, real-world QA and comprehensive accessibility audits. Do not use this prototype to make medical availability claims.
+## حدود معروفة
+- الترجمة الإنجليزية تغطي: التنقل، الـ Hero، الفوتر، البحث، قوائم اللوحات. أقسام التسويق في الرئيسية وصفحات المحتوى لسا بالعربية فقط.
+- لا يوجد تجميع (clustering) لدبابيس الخريطة.
+- لم نستخدم GSAP ولا Three.js؛ الأنيميشن كله Framer Motion + CSS.
+- لا اختبارات آلية؛ راجع قائمة الفحص أدناه.
+
+## قائمة فحص يدوية
+- [ ] `npm run build` بلا أخطاء
+- [ ] RTL سليم والتبديل لـ EN يعكس الاتجاه
+- [ ] البحث عن «كتافلام» ينتج نتائج من أكثر من صيدلية
+- [ ] خريطة Leaflet تظهر الدبابيس وتتزامن مع القائمة
+- [ ] CRUD المخزون والفروع يبقى بعد إعادة تحميل الصفحة
+- [ ] اعتماد/رفض/إيقاف صيدلية في لوحة المشرف
+- [ ] تصدير CSV يفتح بالعربية في Excel
+- [ ] الجوال: القوائم والخريطة وLog-in dropdown
+- [ ] `prefers-reduced-motion` يوقف الحركات الكبيرة
