@@ -15,9 +15,11 @@ export async function GET(req: Request) {
     let warehouse = null;
     if (user.pharmacyId) {
       const p = await q1("SELECT id, name, status FROM pharmacies WHERE id = $1", [user.pharmacyId]);
-      const s = await q1("SELECT status, start_date, end_date FROM pharmacy_subscriptions WHERE pharmacy_id = $1", [user.pharmacyId]);
-      pharmacy = p && { id: p.id, name: p.name, status: p.status, subscription: effectiveSub(s, cairoToday()), endDate: s?.end_date ?? null };
-    }
+const s = (await q1("SELECT status, start_date, end_date FROM pharmacy_subscriptions WHERE pharmacy_id = $1", [user.pharmacyId])) as {
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
+} | null;    }
     if (user.warehouseId) {
       const w = await q1("SELECT id, name, phone, whatsapp, address, status FROM warehouses WHERE id = $1", [user.warehouseId]);
       warehouse = w;

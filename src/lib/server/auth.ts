@@ -85,8 +85,14 @@ export async function requirePharmacy(req: Request, needSubscription = true): Pr
   if (!g.ok) return g;
   const pharmacy = await q1("SELECT * FROM pharmacies WHERE id = $1", [g.user.pharmacyId]);
   if (!pharmacy) return { ok: false, res: fail("forbidden", 403) };
-  const subRow = await q1("SELECT status, start_date, end_date FROM pharmacy_subscriptions WHERE pharmacy_id = $1", [pharmacy.id]);
-  const sub = effectiveSub(subRow, cairoToday());
+const subRow = (await q1(
+  "SELECT status, start_date, end_date FROM pharmacy_subscriptions WHERE pharmacy_id = $1",
+  [pharmacy.id]
+)) as {
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
+} | null;  const sub = effectiveSub(subRow, cairoToday());
   if (needSubscription) {
     if (pharmacy.status !== "active") return { ok: false, res: fail("pharmacy-not-approved", 403, { pharmacyStatus: pharmacy.status }) };
     if (sub !== "active") return { ok: false, res: fail("subscription-required", 403, { subscription: sub }) };
