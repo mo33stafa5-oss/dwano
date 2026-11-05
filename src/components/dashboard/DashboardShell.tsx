@@ -9,6 +9,12 @@ import {
   Bell,
   Inbox,
   Building2,
+  Boxes,
+  ClipboardList,
+  CreditCard,
+  ShoppingBag,
+  Truck,
+  Wallet,
   ChevronsLeft,
   ChevronsRight,
   FileBarChart2,
@@ -36,34 +42,46 @@ import { toast } from "@/store/toast";
 import type { TKey } from "@/locales/ar";
 import { EASE } from "@/lib/motion";
 import { useRequests } from "@/hooks/useRequests";
+import { useMe } from "@/hooks/useMe";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type Kind = "pharmacy" | "admin";
+type Kind = "pharmacy" | "admin" | "warehouse";
 interface Item {
   href: string;
   key: TKey;
   icon: typeof LayoutDashboard;
+  demo?: boolean;
 }
 
 const NAV: Record<Kind, Item[]> = {
   pharmacy: [
-    { href: "/pharmacy", key: "dash.overview", icon: LayoutDashboard },
-    { href: "/pharmacy/inventory", key: "dash.inventory", icon: Package },
-    { href: "/pharmacy/profile", key: "dash.profile", icon: Store },
-    { href: "/pharmacy/branches", key: "dash.branches", icon: GitBranch },
-    { href: "/pharmacy/analytics", key: "dash.analytics", icon: BarChart3 },
-    { href: "/pharmacy/settings", key: "dash.settings", icon: Settings },
+    { href: "/pharmacy/souqak", key: "dash.souqak", icon: ShoppingBag },
+    { href: "/pharmacy/orders", key: "dash.orders", icon: ClipboardList },
+    { href: "/pharmacy/warehouses", key: "dash.warehouseSearch", icon: Truck },
+    { href: "/pharmacy/subscription", key: "dash.subscription", icon: CreditCard },
+    { href: "/pharmacy", key: "dash.overview", icon: LayoutDashboard, demo: true },
+    { href: "/pharmacy/inventory", key: "dash.inventory", icon: Package, demo: true },
+    { href: "/pharmacy/profile", key: "dash.profile", icon: Store, demo: true },
+    { href: "/pharmacy/branches", key: "dash.branches", icon: GitBranch, demo: true },
+    { href: "/pharmacy/analytics", key: "dash.analytics", icon: BarChart3, demo: true },
+    { href: "/pharmacy/settings", key: "dash.settings", icon: Settings, demo: true },
   ],
   admin: [
-    { href: "/admin", key: "dash.overview", icon: LayoutDashboard },
+    { href: "/admin/operations", key: "dash.operations", icon: Wallet },
     { href: "/admin/requests", key: "dash.requests", icon: Inbox },
-    { href: "/admin/pharmacies", key: "dash.pharmacies", icon: Building2 },
-    { href: "/admin/medicines", key: "dash.medicines", icon: Pill },
-    { href: "/admin/geography", key: "dash.geography", icon: Globe2 },
-    { href: "/admin/analytics", key: "dash.analytics", icon: BarChart3 },
-    { href: "/admin/reports", key: "dash.reports", icon: FileBarChart2 },
-    { href: "/admin/settings", key: "dash.settings", icon: Settings },
+    { href: "/admin/network", key: "dash.network", icon: Building2 },
+    { href: "/admin/subscriptions", key: "dash.subscriptions", icon: CreditCard },
+    { href: "/admin/warehouses", key: "dash.warehouses", icon: Boxes },
+    { href: "/admin", key: "dash.overview", icon: LayoutDashboard, demo: true },
+    { href: "/admin/pharmacies", key: "dash.pharmacies", icon: Building2, demo: true },
+    { href: "/admin/medicines", key: "dash.medicines", icon: Pill, demo: true },
+    { href: "/admin/geography", key: "dash.geography", icon: Globe2, demo: true },
+    { href: "/admin/analytics", key: "dash.analytics", icon: BarChart3, demo: true },
+    { href: "/admin/reports", key: "dash.reports", icon: FileBarChart2, demo: true },
+    { href: "/admin/settings", key: "dash.settings", icon: Settings, demo: true },
   ],
+  warehouse: [{ href: "/warehouse", key: "dash.warehouseMeds", icon: Boxes }],
 };
 
 const NOTIFS: Record<Kind, { id: number; text: string }[]> = {
@@ -72,6 +90,7 @@ const NOTIFS: Record<Kind, { id: number; text: string }[]> = {
     { id: 2, text: "تم عرض ملف صيدليتك ١٢ مرة اليوم (رقم تجريبي)." },
     { id: 3, text: "مرحبًا بك في لوحة دوانو التجريبية." },
   ],
+  warehouse: [{ id: 1, text: "حدّث توافر أدويتك باستمرار حتى تظهر بياناتك للصيدليات بشكل موثوق." }],
   admin: [
     { id: 1, text: "٤ طلبات صيدليات بانتظار المراجعة (تجريبي)." },
     { id: 2, text: "ارتفاع عمليات البحث عن «كتافلام» هذا الأسبوع (تجريبي)." },
@@ -92,6 +111,7 @@ export default function DashboardShell({ kind, children }: { kind: Kind; childre
   const [mobile, setMobile] = useState(false);
   const [menu, setMenu] = useState<null | "notif" | "user">(null);
   const [read, setRead] = useState<number[]>([]);
+  const me = useMe();
   const { requests, unseen, markAllSeen } = useRequests(kind === "admin");
   const reqUnseen = kind === "admin" ? unseen : 0;
   const [q, setQ] = useState("");
@@ -101,6 +121,7 @@ export default function DashboardShell({ kind, children }: { kind: Kind; childre
 
   useEffect(() => {
     if (!hydrated) return;
+    if (kind === "warehouse") return;
     ensureSeed();
     // Dashboards are a frontend demo: open as the matching demo role if nobody is signed in.
     if (!role) signIn(kind === "admin" ? "admin" : "pharmacy");
@@ -129,7 +150,10 @@ export default function DashboardShell({ kind, children }: { kind: Kind; childre
 
   const unread = NOTIFS[kind].filter((n) => !read.includes(n.id)).length + reqUnseen;
   const isActive = (href: string) => (href === `/${kind}` ? pathname === href : pathname.startsWith(href));
-  const title = kind === "pharmacy" ? profileName : "لوحة الإدارة";
+  const title = kind === "warehouse" ? me.me?.user?.displayName ?? "المخزن" : kind === "pharmacy" ? me.me?.pharmacy?.name ?? profileName : "لوحة الإدارة";
+  const roleLabel = kind === "pharmacy" ? "لوحة الصيدلية" : kind === "warehouse" ? "لوحة المخزن" : "الإدارة";
+  const shownName = me.me?.user?.displayName ?? name;
+  const isDemoPage = items.find((i) => isActive(i.href))?.demo ?? false;
 
   const sidebar = (compact: boolean) => (
     <div className="flex h-full flex-col">
@@ -137,11 +161,13 @@ export default function DashboardShell({ kind, children }: { kind: Kind; childre
         {compact ? <LogoMark size={34} /> : <Logo tone="light" />}
       </div>
       <nav aria-label="قائمة اللوحة" className="flex-1 space-y-1 p-3">
-        {items.map((it) => {
+        {items.map((it, idx) => {
           const active = isActive(it.href);
+          const firstDemo = it.demo && !items[idx - 1]?.demo;
           return (
+            <div key={it.href}>
+              {firstDemo && !compact && <p className="mb-1 mt-3 px-3 text-[10px] font-extrabold tracking-wide text-white/35">{t("dash.demoSep")}</p>}
             <Link
-              key={it.href}
               href={it.href}
               title={compact ? t(it.key) : undefined}
               className={cn(
@@ -158,12 +184,13 @@ export default function DashboardShell({ kind, children }: { kind: Kind; childre
                 <span className="ms-auto grid min-w-5 place-items-center rounded-full bg-rose-500 px-1.5 text-[10px] font-black text-white">{reqUnseen.toLocaleString("ar-EG")}</span>
               )}
             </Link>
+            </div>
           );
         })}
       </nav>
       <div className={cn("border-t border-white/10 p-3", compact && "hidden")}>
         <p className="rounded-xl bg-white/5 p-3 text-[11px] font-semibold leading-relaxed text-white/55">
-          بيانات هذه اللوحة تجريبية وتُحفظ في متصفحك فقط.
+          صفحات «تجريبية» بيانات متصفحك فقط، والباقي بيانات حقيقية.
         </p>
       </div>
     </div>
@@ -216,7 +243,7 @@ export default function DashboardShell({ kind, children }: { kind: Kind; childre
 
             <div className="min-w-0">
               <p className="truncate text-sm font-black">{title}</p>
-              <p className="hidden text-[11px] font-semibold text-muted sm:block">{kind === "pharmacy" ? "لوحة الصيدلية" : "السوبر أدمن"}</p>
+              <p className="hidden text-[11px] font-semibold text-muted sm:block">{roleLabel}</p>
             </div>
 
             <div className="relative ms-auto hidden w-64 md:block">
@@ -250,7 +277,7 @@ export default function DashboardShell({ kind, children }: { kind: Kind; childre
               )}
             </div>
 
-            <span className="hidden items-center gap-1.5 rounded-full border border-amber-300/60 bg-amber-50 px-3 py-1 text-[11px] font-extrabold text-amber-800 sm:flex">
+            <span className={cn("hidden items-center gap-1.5 rounded-full border border-amber-300/60 bg-amber-50 px-3 py-1 text-[11px] font-extrabold text-amber-800", isDemoPage && "sm:flex")}>
               <FlaskConical className="size-3.5" /> {t("common.demoMode")}
             </span>
             <LangSwitch className="hidden sm:flex" />
@@ -315,8 +342,8 @@ export default function DashboardShell({ kind, children }: { kind: Kind; childre
                 onClick={() => setMenu(menu === "user" ? null : "user")}
                 className="flex items-center gap-2 rounded-full border border-navy/10 bg-white py-1 pe-3 ps-1 transition hover:border-brand/40"
               >
-                <span className="grid size-8 place-items-center rounded-full bg-brand text-xs font-black text-white">{(name || "د").slice(0, 1)}</span>
-                <span className="hidden max-w-[110px] truncate text-xs font-extrabold sm:block">{name || "…"}</span>
+                <span className="grid size-8 place-items-center rounded-full bg-brand text-xs font-black text-white">{(shownName || "د").slice(0, 1)}</span>
+                <span className="hidden max-w-[110px] truncate text-xs font-extrabold sm:block">{shownName || "…"}</span>
               </button>
               <AnimatePresence>
                 {menu === "user" && (
@@ -327,8 +354,8 @@ export default function DashboardShell({ kind, children }: { kind: Kind; childre
                     transition={{ duration: 0.18 }}
                     className="absolute end-0 top-full z-40 mt-2 w-64 overflow-hidden rounded-2xl border border-navy/10 bg-white p-1.5 shadow-lift"
                   >
-                    <p className="px-3 py-2 text-[11px] font-bold text-muted">{t("dash.switchRole")} (ديمو)</p>
-                    {[
+                    {isDemoPage && <p className="px-3 py-2 text-[11px] font-bold text-muted">{t("dash.switchRole")} (ديمو)</p>}
+                    {isDemoPage && [
                       { label: "صيدلية", r: "pharmacy" as const, to: "/pharmacy" },
                       { label: "مشرف", r: "admin" as const, to: "/admin" },
                       { label: "مريض (الموقع)", r: "patient" as const, to: "/" },
@@ -349,7 +376,8 @@ export default function DashboardShell({ kind, children }: { kind: Kind; childre
                     <div className="my-1 h-px bg-navy/5" />
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
+                        await api("/api/auth/logout", { method: "POST" });
                         signOut();
                         router.push("/login");
                       }}

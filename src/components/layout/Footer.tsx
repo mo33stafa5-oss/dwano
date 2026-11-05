@@ -11,6 +11,7 @@ const COLS: { title: TKey; links: { href: string; key: TKey }[] }[] = [
     links: [
       { href: "/", key: "nav.home" },
       { href: "/search", key: "nav.search" },
+      { href: "/souqak", key: "nav.souqak" },
       { href: "/how-it-works", key: "footer.how" },
       { href: "/#coverage", key: "nav.coverage" },
     ],
@@ -19,7 +20,7 @@ const COLS: { title: TKey; links: { href: string; key: TKey }[] }[] = [
     title: "footer.pharmacies",
     links: [
       { href: "/register", key: "nav.register" },
-      { href: "/login?role=pharmacy", key: "nav.login" },
+      { href: "/login", key: "nav.login" },
       { href: "/pharmacy", key: "nav.p.pharmacy" },
     ],
   },

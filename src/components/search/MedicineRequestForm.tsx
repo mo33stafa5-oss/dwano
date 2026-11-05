@@ -1,18 +1,20 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, CheckCircle2, Copy, Crosshair, Loader2, Mail, MapPin, MessageCircle, Phone, Pill, RotateCcw, ShieldCheck, User } from "lucide-react";
+import { Check, CheckCircle2, Copy, Crosshair, FileImage, Loader2, MapPin, MessageCircle, Phone, Pill, RotateCcw, ShieldCheck, User, X } from "lucide-react";
 import { FieldError } from "@/components/shared/ContactForm";
 import { getArea, getDistrict, governorates } from "@/data/locations";
 import {
-  generateRequestId,
+  PRESCRIPTION_MAX_BYTES,
+  PRESCRIPTION_TYPES,
   requestSchema,
   submitMedicineRequest,
   type Coordinates,
   type MedicineRequest,
+  type SubmitInput,
   type RequestFormInput,
   type RequestFormValues,
 } from "@/lib/requests";
@@ -50,6 +52,22 @@ export default function MedicineRequestForm({ medicineId, medicineName, district
   const [done, setDone] = useState<MedicineRequest | null>(null);
   const [copied, setCopied] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [rx, setRx] = useState<File | null>(null);
+  const [rxUrl, setRxUrl] = useState("");
+  const [rxError, setRxError] = useState("");
+  useEffect(() => {
+    if (!rx) return setRxUrl("");
+    const u = URL.createObjectURL(rx);
+    setRxUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [rx]);
+  const pickRx = (f: File | undefined) => {
+    setRxError("");
+    if (!f) return;
+    if (!PRESCRIPTION_TYPES.includes(f.type)) return setRxError("نوع الملف غير مدعوم. استخدم JPG أو PNG أو WEBP.");
+    if (f.size > PRESCRIPTION_MAX_BYTES) return setRxError("حجم الصورة أكبر من ٤ ميجابايت.");
+    setRx(f);
+  };
   const lock = useRef(false); // synchronous guard against double clicks
 
   const shareLocation = () => {
@@ -71,11 +89,9 @@ export default function MedicineRequestForm({ medicineId, medicineName, district
     setSubmitError("");
     const district = getDistrict(districtId);
     const area = getArea(areaId);
-    const payload: Omit<MedicineRequest, "status" | "seen"> = {
-      id: generateRequestId(),
-      createdAt: new Date().toISOString(),
+    const payload: SubmitInput = {
       medicine: { id: medicineId, name: medicineName },
-      customer: { fullName: v.fullName, email: v.email, phone: v.phone, whatsapp: v.whatsapp },
+      customer: { fullName: v.fullName, phone: v.phone, whatsapp: v.whatsapp },
       location: {
         governorate: { id: governorates[0].id, name: governorates[0].nameAr },
         district: district && { id: district.id, name: district.nameAr },
@@ -84,12 +100,18 @@ export default function MedicineRequestForm({ medicineId, medicineName, district
         coordinates: coords ?? undefined,
       },
     };
-    try {
-      setDone(await submitMedicineRequest(payload));
-    } catch {
-      setSubmitError("تعذّر إرسال الطلب. حاول مرة أخرى بعد قليل.");
-      lock.current = false;
-    }
+    const r = await submitMedicineRequest(payload, rx);
+    if (r.ok) return setDone(r.request);
+    setSubmitError(
+      {
+        "prescription-too-large": "حجم صورة الروشتة كبير.",
+        "prescription-type": "نوع صورة الروشتة غير مدعوم (JPG أو PNG أو WEBP).",
+        "prescriptions-not-configured": "رفع الروشتة غير متاح حاليًا. أرسل الطلب بدونها أو حاول لاحقًا.",
+        "rate-limited": "محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.",
+        invalid: "راجع بيانات النموذج ثم حاول مرة أخرى.",
+      }[r.error]
+    );
+    lock.current = false;
   };
 
   const newRequest = () => {
@@ -97,6 +119,7 @@ export default function MedicineRequestForm({ medicineId, medicineName, district
     setDone(null);
     setCoords(null);
     setGeo("idle");
+    setRx(null);
     reset();
     onReset();
   };
@@ -201,12 +224,6 @@ export default function MedicineRequestForm({ medicineId, medicineName, district
               <FieldError msg={err("fullName")} />
             </div>
             <div className="relative">
-              <Label htmlFor="r-email">البريد الإلكتروني</Label>
-              <Mail className={icon} />
-              <input id="r-email" type="email" dir="ltr" autoComplete="email" className={cn("field !ps-11 text-start", errors.email && "!border-rose-400")} aria-invalid={!!errors.email} {...register("email")} />
-              <FieldError msg={err("email")} />
-            </div>
-            <div className="relative">
               <Label htmlFor="r-phone">رقم الهاتف</Label>
               <Phone className={icon} />
               <input id="r-phone" type="tel" inputMode="tel" dir="ltr" autoComplete="tel" placeholder="01012345678" className={cn("field !ps-11 text-start", errors.phone && "!border-rose-400")} aria-invalid={!!errors.phone} {...register("phone")} />
@@ -227,6 +244,25 @@ export default function MedicineRequestForm({ medicineId, medicineName, district
               <input id="r-addr" placeholder="الشارع، أو علامة مميزة قريبة منك" className="field !ps-11" {...register("address")} />
               <FieldError msg={err("address")} />
             </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-navy/10 bg-ice p-4">
+            <p className="text-sm font-extrabold">صورة الروشتة <span className="font-semibold text-muted">(اختياري)</span></p>
+            <p className="mt-0.5 text-xs font-medium text-muted">JPG أو PNG أو WEBP حتى ٤ ميجابايت. تظهر لفريق دوانو المخوّل فقط. الأدوية التي تُصرف بروشتة لا تُصرف دون التحقق منها.</p>
+            {rx && rxUrl ? (
+              <div className="mt-3 flex items-center gap-3 rounded-xl border border-navy/10 bg-white p-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={rxUrl} alt="معاينة الروشتة" className="size-16 rounded-lg object-cover" />
+                <span className="min-w-0 flex-1 truncate text-xs font-bold" dir="ltr">{rx.name}</span>
+                <button type="button" onClick={() => setRx(null)} aria-label="إزالة الروشتة" className="grid size-8 place-items-center rounded-full text-rose-600 hover:bg-rose-50"><X className="size-4" /></button>
+              </div>
+            ) : (
+              <label htmlFor="r-rx" className="btn-light mt-3 cursor-pointer !py-2.5 text-sm">
+                <FileImage className="size-4" /> رفع صورة الروشتة
+                <input id="r-rx" type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => (pickRx(e.target.files?.[0]), (e.target.value = ""))} />
+              </label>
+            )}
+            {rxError && <p role="alert" className="mt-2 text-xs font-bold text-rose-600">{rxError}</p>}
           </div>
 
           <div className="mt-4 rounded-2xl border border-navy/10 bg-ice p-4">

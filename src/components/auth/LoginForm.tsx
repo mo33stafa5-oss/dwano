@@ -2,120 +2,73 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { LayoutDashboard, ShieldCheck, Store, UserRound } from "lucide-react";
 import { FieldError } from "@/components/shared/ContactForm";
-import { useSessionStore } from "@/store/session";
-import { demoToast } from "@/store/toast";
+import { api, errMsg } from "@/lib/api";
 import { useT } from "@/hooks/useT";
-import type { DemoRole } from "@/data/users";
 import { cn } from "@/lib/utils";
 
 const schema = z.object({
-  email: z.string().trim().email("اكتب بريدًا إلكترونيًا صحيحًا"),
-  password: z.string().min(6, "كلمة المرور ٦ أحرف على الأقل"),
+  username: z.string().trim().min(3, "اكتب اسم المستخدم"),
+  password: z.string().min(1, "اكتب كلمة المرور"),
 });
 type Values = z.infer<typeof schema>;
 
-const ROLES: { id: DemoRole; label: string; icon: typeof UserRound; to: string; email: string }[] = [
-  { id: "patient", label: "مريض", icon: UserRound, to: "/", email: "patient@demo.dwano" },
-  { id: "pharmacy", label: "صيدلية", icon: Store, to: "/pharmacy", email: "pharmacy@demo.dwano" },
-  { id: "admin", label: "مشرف", icon: ShieldCheck, to: "/admin", email: "admin@demo.dwano" },
-];
+const HOME: Record<string, string> = { admin: "/admin/operations", pharmacy: "/pharmacy/souqak", warehouse: "/warehouse" };
+
+/** Only same-site relative paths are accepted as a post-login destination. */
+const safeNext = (n: string | null) => (n && /^\/(?!\/)[\w\-./?=&%]*$/.test(n) ? n : null);
 
 export default function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
   const { t } = useT();
-  const signIn = useSessionStore((s) => s.signIn);
-  const initial = (params.get("role") as DemoRole | null) ?? "patient";
-  const [role, setRole] = useState<DemoRole>(ROLES.some((r) => r.id === initial) ? initial : "patient");
-  const current = ROLES.find((r) => r.id === role)!;
-
+  const [error, setError] = useState("");
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<Values>({ resolver: zodResolver(schema) });
 
-  const enter = (r: DemoRole) => {
-    const target = ROLES.find((x) => x.id === r)!;
-    signIn(r);
-    demoToast(`تم الدخول كـ «${target.label}» في وضع الديمو. لا يوجد حساب حقيقي.`);
-    router.push(target.to);
-  };
-
-  // Credentials are validated for shape only and are never stored or sent anywhere.
-  const onSubmit = async () => {
-    await new Promise((r) => setTimeout(r, 350));
-    enter(role);
+  const onSubmit = async (v: Values) => {
+    setError("");
+    const r = await api<{ user?: { role: string } }>("/api/auth/login", { method: "POST", json: v });
+    if (!r.ok) return setError(r.status === 401 ? "اسم المستخدم أو كلمة المرور غير صحيحة." : errMsg(r.error));
+    // full navigation so the dashboards pick up the new session cookie
+    window.location.assign(safeNext(params.get("next")) ?? HOME[r.data.user?.role ?? ""] ?? "/");
   };
 
   return (
     <div>
       <h1 className="text-3xl font-black">{t("auth.login")}</h1>
-      <p className="mt-2 text-sm font-medium text-muted">اختر نوع الحساب ثم ادخل. كل شيء هنا تجريبي.</p>
-
-      <div className="mt-6 grid grid-cols-3 gap-2 rounded-2xl bg-white p-1.5 shadow-soft" role="tablist" aria-label="نوع الحساب">
-        {ROLES.map((r) => (
-          <button
-            key={r.id}
-            type="button"
-            role="tab"
-            aria-selected={role === r.id}
-            onClick={() => setRole(r.id)}
-            className={cn(
-              "flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-extrabold transition",
-              role === r.id ? "bg-brand text-white shadow-soft" : "text-muted hover:text-navy"
-            )}
-          >
-            <r.icon className="size-4" /> {r.label}
-          </button>
-        ))}
-      </div>
+      <p className="mt-2 text-sm font-medium text-muted">للصيدليات والمخازن وفريق الإدارة. العملاء لا يحتاجون حسابًا.</p>
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="mt-6 space-y-4">
         <div>
-          <label htmlFor="l-email" className="mb-1.5 block text-xs font-extrabold text-muted">
-            {t("auth.email")}
+          <label htmlFor="l-user" className="mb-1.5 block text-xs font-extrabold text-muted">
+            اسم المستخدم
           </label>
-          <input
-            id="l-email"
-            type="email"
-            dir="ltr"
-            placeholder={current.email}
-            className={cn("field text-start", errors.email && "!border-rose-400")}
-            {...register("email")}
-          />
-          <FieldError msg={errors.email?.message} />
+          <input id="l-user" dir="ltr" autoComplete="username" className={cn("field text-start", errors.username && "!border-rose-400")} {...register("username")} />
+          <FieldError msg={errors.username?.message} />
         </div>
         <div>
-          <div className="mb-1.5 flex items-center justify-between">
-            <label htmlFor="l-pass" className="text-xs font-extrabold text-muted">
-              {t("auth.password")}
-            </label>
-            <Link href="/forgot-password" className="text-xs font-extrabold text-brand hover:underline">
-              {t("auth.forgot")}
-            </Link>
-          </div>
-          <input id="l-pass" type="password" dir="ltr" autoComplete="off" className={cn("field text-start", errors.password && "!border-rose-400")} {...register("password")} />
+          <label htmlFor="l-pass" className="mb-1.5 block text-xs font-extrabold text-muted">
+            {t("auth.password")}
+          </label>
+          <input id="l-pass" type="password" dir="ltr" autoComplete="current-password" className={cn("field text-start", errors.password && "!border-rose-400")} {...register("password")} />
           <FieldError msg={errors.password?.message} />
         </div>
+        {error && (
+          <p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-700">
+            {error}
+          </p>
+        )}
         <button type="submit" disabled={isSubmitting} className="btn-primary w-full">
           {isSubmitting ? <span className="size-5 animate-spin rounded-full border-2 border-white/40 border-t-white" /> : t("auth.login")}
         </button>
       </form>
-
-      <div className="my-6 flex items-center gap-3 text-xs font-bold text-muted">
-        <span className="h-px flex-1 bg-navy/10" /> أو <span className="h-px flex-1 bg-navy/10" />
-      </div>
-
-      <button type="button" onClick={() => enter(role)} className="btn-light w-full">
-        <LayoutDashboard className="size-4" /> دخول تجريبي سريع كـ «{current.label}»
-      </button>
 
       <p className="mt-6 text-center text-sm font-medium text-muted">
         صيدلية جديدة؟{" "}
@@ -124,7 +77,7 @@ export default function LoginForm() {
         </Link>
       </p>
       <p className="mt-4 rounded-2xl border border-navy/10 bg-white p-3 text-center text-[11px] font-semibold leading-relaxed text-muted">
-        لا يتم حفظ كلمات المرور أو إرسالها لأي خادم. يُحفظ فقط الاسم والدور التجريبي في متصفحك.
+        حسابات المخازن تُنشأ بواسطة إدارة دوانو. حسابات الصيدليات الجديدة تُفعَّل بعد موافقة الإدارة.
       </p>
     </div>
   );

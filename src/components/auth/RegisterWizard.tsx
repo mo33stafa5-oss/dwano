@@ -9,7 +9,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, Check, PartyPopper } from "lucide-react";
 import { FieldError } from "@/components/shared/ContactForm";
 import { areasOfDistrict, districts, getArea, getDistrict } from "@/data/locations";
-import { useAdminStore } from "@/store/adminDash";
+import { api, errMsg } from "@/lib/api";
 import { EASE } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +22,9 @@ const schema = z.object({
   areaId: z.string().min(1, "اختر المنطقة"),
   address: z.string().trim().min(6, "اكتب العنوان بالتفصيل"),
   phone,
-  email: z.string().trim().email("اكتب بريدًا إلكترونيًا صحيحًا"),
+  email: z.string().trim().email("اكتب بريدًا إلكترونيًا صحيحًا").optional().or(z.literal("")),
+  username: z.string().trim().regex(/^[a-zA-Z0-9_.-]{4,30}$/, "٤-٣٠ حرفًا إنجليزيًا أو أرقامًا (يسمح بـ _ . -)"),
+  password: z.string().min(8, "كلمة المرور ٨ أحرف على الأقل").max(100),
   hours: z.string().trim().min(3, "اكتب مواعيد العمل"),
   agree: z.literal(true, { errorMap: () => ({ message: "لازم توافق على الإقرار" }) }),
 });
@@ -31,7 +33,7 @@ type Values = z.infer<typeof schema>;
 const STEPS: { title: string; fields: FieldPath<Values>[] }[] = [
   { title: "بيانات الصيدلية", fields: ["nameAr", "owner"] },
   { title: "الموقع", fields: ["districtId", "areaId", "address"] },
-  { title: "التواصل والمواعيد", fields: ["phone", "email", "hours"] },
+  { title: "التواصل والمواعيد", fields: ["phone", "email", "hours", "username", "password"] },
   { title: "المراجعة", fields: ["agree"] },
 ];
 
@@ -39,7 +41,7 @@ export default function RegisterWizard() {
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
   const [doneId, setDoneId] = useState<string | null>(null);
-  const registerPharmacy = useAdminStore((s) => s.registerPharmacy);
+  const [serverError, setServerError] = useState("");
 
   const {
     register,
@@ -68,16 +70,18 @@ export default function RegisterWizard() {
   };
 
   const onSubmit = async (v: Values) => {
-    await new Promise((r) => setTimeout(r, 500));
-    const id = registerPharmacy({
-      nameAr: v.nameAr,
-      owner: v.owner,
-      phone: v.phone,
-      districtId: v.districtId,
-      areaId: v.areaId,
-      address: v.address,
+    setServerError("");
+    const r = await api<{ id?: string }>("/api/pharmacies/register", {
+      method: "POST",
+      json: { name: v.nameAr, owner: v.owner, phone: v.phone, email: v.email || undefined, districtId: v.districtId, areaId: v.areaId, address: v.address, hours: v.hours, username: v.username, password: v.password },
     });
-    setDoneId(id);
+    if (!r.ok) {
+      setServerError(r.status === 409 ? "اسم المستخدم مستخدم بالفعل. اختر اسمًا آخر." : errMsg(r.error));
+      setDir(-1);
+      setStep(2);
+      return;
+    }
+    setDoneId(r.data.id ?? "ok");
   };
 
   if (doneId)
@@ -86,13 +90,13 @@ export default function RegisterWizard() {
         <span className="mx-auto grid size-20 place-items-center rounded-full bg-brand-mint text-brand">
           <PartyPopper className="size-10" />
         </span>
-        <h1 className="mt-6 text-3xl font-black">تم إرسال الطلب (ديمو)</h1>
+        <h1 className="mt-6 text-3xl font-black">تم استلام طلب التسجيل</h1>
         <p className="mt-3 text-sm font-medium leading-loose text-muted">
-          تم حفظ الطلب في متصفحك فقط، وهيظهر كـ «قيد المراجعة» في لوحة المشرف التجريبية. لم يتم إرسال أي بيانات لخادم.
+          حسابك «قيد المراجعة». بعد موافقة إدارة دوانو وتفعيل الاشتراك تقدر تدخل بحسابك وتستخدم سوقك والمخازن.
         </p>
         <div className="mt-6 grid gap-2 sm:grid-cols-2">
-          <Link href="/admin/pharmacies" className="btn-primary">
-            شوف الطلب في لوحة المشرف
+          <Link href="/login" className="btn-primary">
+            تسجيل الدخول
           </Link>
           <Link href="/" className="btn-light">
             الرئيسية
@@ -106,7 +110,7 @@ export default function RegisterWizard() {
   return (
     <div>
       <h1 className="text-3xl font-black">سجّل صيدليتك</h1>
-      <p className="mt-2 text-sm font-medium text-muted">أربع خطوات بسيطة. (نموذج تجريبي: لا يوجد تحقق فعلي من الترخيص.)</p>
+      <p className="mt-2 text-sm font-medium text-muted">أربع خطوات بسيطة. تتم مراجعة الطلب والتحقق من الترخيص بواسطة الإدارة قبل التفعيل.</p>
 
       <div className="mt-6">
         <div className="flex items-center justify-between text-xs font-extrabold">
@@ -220,7 +224,7 @@ export default function RegisterWizard() {
                   </div>
                   <div>
                     <label htmlFor="g-email" className="mb-1.5 block text-xs font-extrabold text-muted">
-                      البريد الإلكتروني
+                      البريد الإلكتروني (اختياري)
                     </label>
                     <input id="g-email" type="email" dir="ltr" className={cn("field text-start", errors.email && "!border-rose-400")} {...register("email")} />
                     <FieldError msg={errors.email?.message} />
@@ -232,6 +236,19 @@ export default function RegisterWizard() {
                     <input id="g-hours" className={cn("field", errors.hours && "!border-rose-400")} {...register("hours")} />
                     <FieldError msg={errors.hours?.message} />
                   </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="g-user" className="mb-1.5 block text-xs font-extrabold text-muted">اسم المستخدم للدخول</label>
+                      <input id="g-user" dir="ltr" autoComplete="username" className={cn("field text-start", errors.username && "!border-rose-400")} {...register("username")} />
+                      <FieldError msg={errors.username?.message} />
+                    </div>
+                    <div>
+                      <label htmlFor="g-pass" className="mb-1.5 block text-xs font-extrabold text-muted">كلمة المرور</label>
+                      <input id="g-pass" type="password" dir="ltr" autoComplete="new-password" className={cn("field text-start", errors.password && "!border-rose-400")} {...register("password")} />
+                      <FieldError msg={errors.password?.message} />
+                    </div>
+                  </div>
+                  {serverError && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-700">{serverError}</p>}
                 </>
               )}
               {step === 3 && (
@@ -253,7 +270,7 @@ export default function RegisterWizard() {
                   </dl>
                   <label className="flex items-start gap-3 text-sm font-semibold">
                     <input type="checkbox" className="mt-1 size-4 accent-[#008F73]" {...register("agree")} />
-                    <span>أقرّ بأن هذه بيانات تجريبية للعرض، وأن الطلب لن يُرسل لأي جهة فعلية.</span>
+                    <span>أقرّ بصحة البيانات وبأن الصيدلية مرخّصة، وأوافق على مراجعة الإدارة قبل التفعيل.</span>
                   </label>
                   <FieldError msg={errors.agree?.message} />
                 </>

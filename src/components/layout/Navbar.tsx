@@ -19,6 +19,7 @@ const LINKS: { href: string; key: TKey }[] = [
   { href: "/#how", key: "nav.how" },
   { href: "/#pharmacies", key: "nav.pharmacies" },
   { href: "/#coverage", key: "nav.coverage" },
+  { href: "/souqak", key: "nav.souqak" },
   { href: "/#faq", key: "nav.faq" },
 ];
 
@@ -213,7 +214,7 @@ export default function Navbar() {
               ] as const).map((r) => (
                 <Link
                   key={r.role}
-                  href={`/login?role=${r.role}`}
+                  href="/login"
                   onClick={() => setMenu(null)}
                   className="flex w-full items-center gap-3 rounded-xl p-3 text-start text-sm font-bold text-navy transition hover:bg-brand-mint/60"
                 >

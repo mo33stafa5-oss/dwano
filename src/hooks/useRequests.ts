@@ -25,7 +25,7 @@ export function useRequests(enabled = true) {
         set("server");
         return setRequests(json.requests);
       }
-      if (res.status === 401) {
+      if (res.status === 401 || res.status === 403) {
         set("locked");
         return setRequests([]);
       }
@@ -54,29 +54,20 @@ export function useRequests(enabled = true) {
     if (modeRef.current === "server") {
       const ids = requests.filter((r) => !r.seen).map((r) => r.id);
       if (ids.length === 0) return;
-      await fetch("/api/admin/requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) }).catch(() => {});
+      await fetch("/api/admin/requests", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, seen: true }) }).catch(() => {});
       refresh();
     } else if (modeRef.current === "local") {
       markRequestsSeen();
     }
   }, [requests, refresh]);
 
-  const login = useCallback(
-    async (password: string) => {
-      const res = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
-      if (res.ok) {
-        await refresh();
-        return { ok: true as const };
-      }
-      return { ok: false as const, error: res.status === 401 ? "كلمة المرور غير صحيحة." : "تسجيل الدخول غير مفعّل على الخادم." };
+  const setWorkflow = useCallback(
+    async (id: string, workflow: string) => {
+      await fetch("/api/admin/requests", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, workflow }) }).catch(() => {});
+      refresh();
     },
     [refresh]
   );
 
-  const logout = useCallback(async () => {
-    await fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
-    refresh();
-  }, [refresh]);
-
-  return { requests, mode, unseen: requests.filter((r) => !r.seen).length, markAllSeen, login, logout, refresh };
+  return { requests, mode, unseen: requests.filter((r) => !r.seen).length, markAllSeen, setWorkflow, refresh };
 }

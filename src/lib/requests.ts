@@ -10,7 +10,7 @@ export function normalizeEgPhone(raw: string): string {
   return s;
 }
 
-const phone = (label: string) =>
+export const egPhone = (label: string) =>
   z
     .string()
     .trim()
@@ -19,14 +19,16 @@ const phone = (label: string) =>
     .refine((v) => /^01[0125]\d{8}$/.test(v), "اكتب رقم موبايل مصري صحيح (مثال: 01012345678)");
 
 export const requestSchema = z.object({
-  fullName: z.string().trim().min(3, "اكتب الاسم بالكامل (٣ أحرف على الأقل)"),
-  email: z.string().trim().min(1, "البريد الإلكتروني مطلوب").email("اكتب بريدًا إلكترونيًا صحيحًا"),
-  phone: phone("رقم الهاتف"),
-  whatsapp: phone("رقم الواتساب"),
+  fullName: z.string().trim().min(3, "اكتب الاسم بالكامل (٣ أحرف على الأقل)").max(100),
+  phone: egPhone("رقم الهاتف"),
+  whatsapp: egPhone("رقم الواتساب"),
   address: z.string().trim().max(200, "العنوان طويل جدًا").optional(),
 });
 export type RequestFormInput = z.input<typeof requestSchema>;
 export type RequestFormValues = z.output<typeof requestSchema>;
+
+export const PRESCRIPTION_MAX_BYTES = 4 * 1024 * 1024; // stays under the 4.5 MB serverless body limit
+export const PRESCRIPTION_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 export interface Coordinates {
   lat: number;
@@ -35,11 +37,13 @@ export interface Coordinates {
   capturedAt: string;
 }
 
+export type RequestWorkflow = "new" | "in_review" | "contacted" | "closed";
+
 export interface MedicineRequest {
   id: string;
   createdAt: string;
   medicine: { id?: string; name: string };
-  customer: { fullName: string; email: string; phone: string; whatsapp: string };
+  customer: { fullName: string; phone: string; whatsapp: string };
   location: {
     governorate: { id: string; name: string };
     district?: { id: string; name: string };
@@ -47,19 +51,24 @@ export interface MedicineRequest {
     address?: string;
     coordinates?: Coordinates;
   };
-  /** "submitted" = the server accepted it (and emailed the team). "saved-locally" = only stored in this browser. */
+  /** "submitted" = the server stored it. "saved-locally" = only stored in this browser. */
   status: "saved-locally" | "submitted";
-  /** admin has opened it in the dashboard (this browser only) */
   seen?: boolean;
+  workflow?: RequestWorkflow;
+  hasPrescription?: boolean;
 }
+
+export type SubmitInput = Omit<MedicineRequest, "id" | "createdAt" | "status" | "seen" | "workflow" | "hasPrescription">;
+
+export type SubmitResult =
+  | { ok: true; request: MedicineRequest }
+  | { ok: false; error: "prescription-too-large" | "prescription-type" | "prescriptions-not-configured" | "rate-limited" | "invalid" };
 
 const STORE_KEY = "dwano-medicine-requests";
 export const REQUESTS_EVENT = "dwano:requests";
 
-export function generateRequestId(): string {
-  const t = Date.now().toString(36).toUpperCase().slice(-5);
-  const r = Math.random().toString(36).toUpperCase().slice(2, 6);
-  return `DW-${t}${r}`;
+function localId() {
+  return `DW-L${Date.now().toString(36).toUpperCase().slice(-5)}${Math.random().toString(36).toUpperCase().slice(2, 5)}`;
 }
 
 export function loadRequests(): MedicineRequest[] {
@@ -72,7 +81,7 @@ export function loadRequests(): MedicineRequest[] {
 
 function writeRequests(list: MedicineRequest[]) {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(list.slice(0, 100)));
+    localStorage.setItem(STORE_KEY, JSON.stringify(list.slice(0, 50)));
     window.dispatchEvent(new Event(REQUESTS_EVENT));
   } catch {
     /* storage unavailable */
@@ -85,21 +94,30 @@ export function markRequestsSeen() {
 }
 
 /**
- * Single submission seam.
- * 1) POSTs the request to the server route (emails the Dwano team) or to NEXT_PUBLIC_REQUEST_ENDPOINT if set.
- * 2) Always keeps a copy in this browser so the admin dashboard on the same browser can show a notification.
- * If the server cannot deliver (e.g. email not configured), the request is saved locally and flagged "saved-locally".
+ * Single submission seam: multipart POST (JSON `data` + optional `prescription` image) to /api/medicine-requests.
+ * If the server is unreachable or not configured, the request is kept in this browser only (status "saved-locally").
  */
-export async function submitMedicineRequest(req: Omit<MedicineRequest, "status" | "seen">): Promise<MedicineRequest> {
+export async function submitMedicineRequest(input: SubmitInput, prescription?: File | null): Promise<SubmitResult> {
   const endpoint = process.env.NEXT_PUBLIC_REQUEST_ENDPOINT || "/api/medicine-requests";
-  let delivered = false;
+  const fd = new FormData();
+  fd.set("data", JSON.stringify(input));
+  if (prescription) fd.set("prescription", prescription);
   try {
-    const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
-    delivered = res.ok;
+    const res = await fetch(endpoint, { method: "POST", body: fd });
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; error?: string; createdAt?: string };
+    if (res.ok && json.id) {
+      const req: MedicineRequest = { ...input, id: json.id, createdAt: json.createdAt ?? new Date().toISOString(), status: "submitted", seen: false, hasPrescription: Boolean(prescription) };
+      return { ok: true, request: req };
+    }
+    if (json.error === "file-too-large") return { ok: false, error: "prescription-too-large" };
+    if (json.error === "file-type-not-allowed" || json.error === "file-empty") return { ok: false, error: "prescription-type" };
+    if (json.error === "prescriptions-not-configured") return { ok: false, error: "prescriptions-not-configured" };
+    if (res.status === 429) return { ok: false, error: "rate-limited" };
+    if (res.status === 400) return { ok: false, error: "invalid" };
   } catch {
-    delivered = false;
+    /* fall through to local copy */
   }
-  const saved: MedicineRequest = { ...req, status: delivered ? "submitted" : "saved-locally", seen: false };
-  writeRequests([saved, ...loadRequests()]);
-  return saved;
+  const local: MedicineRequest = { ...input, id: localId(), createdAt: new Date().toISOString(), status: "saved-locally", seen: false, hasPrescription: false };
+  writeRequests([local, ...loadRequests()]);
+  return { ok: true, request: local };
 }
